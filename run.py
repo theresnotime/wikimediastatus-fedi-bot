@@ -46,9 +46,6 @@ def write_status(
     if dry_run is False:
         # Post
         mastodon.status_post(status=status, visibility=str(visibility))
-        print(f"Posted {status}")
-    else:
-        print(f"Dry run, would have posted {status}")
 
 
 if __name__ == "__main__":
