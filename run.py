@@ -1,7 +1,8 @@
 import argparse
 import config
-import feedparser
+import json
 import sys
+import urllib.request
 from enum import Enum
 from mastodon import Mastodon
 from pathlib import Path
@@ -19,16 +20,22 @@ class Visibility(Enum):
         return self.value
 
 
-def check_latest(link_hash: str) -> bool:
+def check_latest(incident_id: str, incident_status: str) -> bool:
     """Check if the latest incident has already been posted."""
     with open(config.STATE_FILE, "r") as f:
-        return f.read() == link_hash
+        return f.read() == f"{incident_id} : {incident_status}"
 
 
-def update_latest(link_hash: str) -> None:
+def update_latest(incident_id: str, incident_status: str) -> None:
     """Update the latest incident hash."""
     with open(config.STATE_FILE, "w") as f:
-        f.write(link_hash)
+        f.write(f"{incident_id} : {incident_status}")
+
+
+def get_latest_incident():
+    with urllib.request.urlopen(config.STATUS_API) as url:
+        data = json.load(url)
+        return data["incidents"][0]
 
 
 def write_status(
@@ -64,17 +71,26 @@ if __name__ == "__main__":
     # Part of my brain is screaming at me for this, but I'm going to ignore it
     Path(config.STATE_FILE).touch(exist_ok=True)
 
-    feed = feedparser.parse(config.RSS_FEED)
+    latest_incident = get_latest_incident()
 
-    entry = feed.entries[0]  # latest incident
-    link_hash = entry.link.split("/")[-1]
-    post = f"New incident: [{entry.title}]({entry.link}) ({entry.published})"
+    incident_id = latest_incident["id"]
+    page_id = latest_incident["page_id"]
+    incident_name = latest_incident["name"]
+    incident_status = latest_incident["status"]
+    short_link = latest_incident["shortlink"]
+    started_at = latest_incident["started_at"]
+    updated_at = latest_incident["updated_at"]
 
-    if check_latest(link_hash):
-        print(f"Already posted this incident ({link_hash}). Exiting.")
+    if check_latest(incident_id, incident_status):
+        print(
+            f"Already posted this incident ({incident_id}) at state ({incident_status}). Exiting."
+        )
         sys.exit(0)
     else:
-        print(f"New incident detected ({link_hash}). Posting.")
-        write_status(post, args.dry_run, args.visibility)
-        if args.dry_run is False:
-            update_latest(link_hash)
+        post = f"[{incident_status}]: [{incident_name}]({short_link}) ({updated_at})"
+        if args.dry_run:
+            print(f"[Dry]: {post}")
+        else:
+            update_latest(incident_id, incident_status)
+            write_status(post, args.dry_run, args.visibility)
+            print(f"Posted: {post}")
